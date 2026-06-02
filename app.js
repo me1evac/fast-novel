@@ -37,6 +37,7 @@ const state = {
   books: [], currentBook: null, currentPage: 0,
   settings: { darkMode: false },
   pdfDoc: null, pageCache: null,
+  renderedPages: new Set(),
 };
 
 // IndexedDB
@@ -153,7 +154,7 @@ async function loadPdf(data) {
 
 function unloadPdf() {
   if (state.pdfDoc) { state.pdfDoc.destroy(); state.pdfDoc = null; }
-  state.pageCache = null;
+  state.pageCache = null; state.renderedPages.clear();
 }
 
 function getRenderWidth() { return Math.max(320, Math.min(dom.readerContent.clientWidth, 720)); }
@@ -161,7 +162,8 @@ function getRenderWidth() { return Math.max(320, Math.min(dom.readerContent.clie
 async function renderPageToUrl(pageNum) {
   if (state.pageCache[pageNum]) return state.pageCache[pageNum];
   const page = await state.pdfDoc.getPage(pageNum + 1);
-  const scale = getRenderWidth() / page.getViewport({ scale: 1 }).width;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const scale = (getRenderWidth() * dpr) / page.getViewport({ scale: 1 }).width;
   const vp = page.getViewport({ scale });
   const c = document.createElement('canvas');
   c.width = vp.width; c.height = vp.height;
@@ -231,7 +233,7 @@ async function openReader(bookId) {
 
     const ld = document.createElement('div');
     ld.className = 'page-loading';
-    ld.innerHTML = '<div class="mini-spinner"></div><span>Đang tải...</span>';
+    ld.textContent = 'Đang tải...';
     div.appendChild(ld);
 
     const num = document.createElement('div');
@@ -244,9 +246,10 @@ async function openReader(bookId) {
 
   hideLoading();
 
-  // Render visible page first, then rest
+  // Render only the current page + 2 buffers ahead — rest is lazy
   await renderPageDom(state.currentPage);
-  renderAllPages(state.currentPage);
+  renderPageDom(state.currentPage + 1);
+  renderPageDom(state.currentPage + 2);
   renderSidebar();
 
   requestAnimationFrame(() => {
@@ -258,10 +261,12 @@ async function openReader(bookId) {
 async function renderPageDom(pn) {
   const book = state.currentBook;
   if (!book || pn < 0 || pn >= book.totalPages) return;
+  if (state.renderedPages.has(pn)) return;
   const div = dom.pagesContainer.querySelector(`[data-page="${pn}"]`);
-  if (!div || div.querySelector('img')) return;
+  if (!div) return;
   try {
     const url = await renderPageToUrl(pn);
+    state.renderedPages.add(pn);
     const ld = div.querySelector('.page-loading');
     if (ld) ld.remove();
     const img = document.createElement('img');
@@ -274,17 +279,13 @@ async function renderPageDom(pn) {
   }
 }
 
-async function renderAllPages(skip) {
-  for (let i = skip + 1; i < state.currentBook.totalPages; i++) await renderPageDom(i);
-  for (let i = 0; i < skip; i++) await renderPageDom(i);
-}
-
 // Navigation
 function navToPage(pn) {
   if (!state.currentBook) return;
   const c = Math.max(0, Math.min(pn, state.currentBook.totalPages - 1));
   if (c === state.currentPage) return;
   state.currentPage = c;
+  renderPageDom(c); renderPageDom(c + 1);
   const el = dom.pagesContainer.querySelector(`[data-page="${c}"]`);
   if (el) el.scrollIntoView({ block: 'start' });
   updateProgress(); savePosition(); renderSidebar();
@@ -330,18 +331,35 @@ async function savePosition() {
 
 function handleScroll() {
   if (!state.currentBook || !state.pdfDoc) return;
-  const containerRect = dom.readerContent.getBoundingClientRect();
-  const center = containerRect.top + containerRect.height / 2;
-  let best = state.currentPage, bestV = 0;
+  if (state._scrollRaf) return;
+  state._scrollRaf = requestAnimationFrame(() => {
+    state._scrollRaf = null;
 
-  dom.pagesContainer.querySelectorAll('.pdf-page').forEach(el => {
-    const r = el.getBoundingClientRect();
-    const dist = Math.abs((r.top + r.height/2) - center);
-    const v = 1 - dist / containerRect.height;
-    if (v > bestV && r.bottom > containerRect.top) { bestV = v; best = parseInt(el.dataset.page); }
+    // Determine current page by viewport center
+    const cr = dom.readerContent.getBoundingClientRect();
+    const cy = cr.top + cr.height / 2;
+    let best = state.currentPage, bestV = 0;
+    const pages = dom.pagesContainer.querySelectorAll('.pdf-page');
+    for (let i = 0; i < pages.length; i++) {
+      const r = pages[i].getBoundingClientRect();
+      const dist = Math.abs((r.top + r.height/2) - cy);
+      const v = 1 - dist / cr.height;
+      if (v > bestV && r.bottom > cr.top) { bestV = v; best = parseInt(pages[i].dataset.page); }
+    }
+    if (best !== state.currentPage) { state.currentPage = best; updateProgress(); renderSidebar(); }
+
+    // Lazy render: render unrendered pages within 1.5 viewports ahead
+    const st = dom.readerContent.scrollTop;
+    const sb = st + cr.height;
+    const buf = cr.height * 1.5;
+    for (let i = 0; i < pages.length; i++) {
+      const pn = parseInt(pages[i].dataset.page);
+      if (!state.renderedPages.has(pn) && pages[i].offsetTop < sb + buf) {
+        renderPageDom(pn);
+      }
+    }
   });
 
-  if (best !== state.currentPage) { state.currentPage = best; updateProgress(); renderSidebar(); }
   clearTimeout(_pt);
   _pt = setTimeout(savePosition, 500);
 }
