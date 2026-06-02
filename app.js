@@ -23,19 +23,18 @@ const dom = {
   pagesContainer: $('#pages-container'), readerContent: $('#reader-content'),
   backBtn: $('#back-btn'), sidebarToggle: $('#sidebar-toggle'),
   settingsToggle: $('#settings-toggle'),
-  tapLeft: $('#tap-left'), tapRight: $('#tap-right'),
   progressFill: $('#progress-fill'), progressText: $('#progress-text'),
   sidebar: $('#sidebar'), sidebarBackdrop: $('#sidebar-backdrop'),
   sidebarClose: $('#sidebar-close'), chapterList: $('#chapter-list'),
   readCount: $('#read-count'),
   settings: $('#settings'), settingsBackdrop: $('#settings-backdrop'),
-  settingsClose: $('#settings-close'), darkmodeToggle: $('#darkmode-toggle'),
+  settingsClose: $('#settings-close'), darkmodeToggle: $('#darkmode-toggle'), highresToggle: $('#highres-toggle'),
 };
 
 // State
 const state = {
   books: [], currentBook: null, currentPage: 0,
-  settings: { darkMode: false },
+  settings: { darkMode: false, highRes: false },
   pdfDoc: null, pageCache: null,
   renderedPages: new Set(),
 };
@@ -162,8 +161,10 @@ function getRenderWidth() { return Math.max(320, Math.min(dom.readerContent.clie
 async function renderPageToUrl(pageNum) {
   if (state.pageCache[pageNum]) return state.pageCache[pageNum];
   const page = await state.pdfDoc.getPage(pageNum + 1);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const scale = (getRenderWidth() * dpr) / page.getViewport({ scale: 1 }).width;
+  const highRes = state.settings.highRes;
+  const dpr = Math.min(window.devicePixelRatio || 1, highRes ? 3 : 2);
+  const w = Math.max(320, Math.min(dom.readerContent.clientWidth, highRes ? 1080 : 720));
+  const scale = (w * dpr) / page.getViewport({ scale: 1 }).width;
   const vp = page.getViewport({ scale });
   const c = document.createElement('canvas');
   c.width = vp.width; c.height = vp.height;
@@ -413,6 +414,8 @@ function loadSettings() {
 function applySettings() {
   dom.darkmodeToggle.textContent = state.settings.darkMode ? 'Bật' : 'Tắt';
   dom.darkmodeToggle.classList.toggle('active', state.settings.darkMode);
+  dom.highresToggle.textContent = state.settings.highRes ? 'Bật' : 'Tắt';
+  dom.highresToggle.classList.toggle('active', state.settings.highRes);
   document.documentElement.setAttribute('data-theme', state.settings.darkMode ? 'dark' : 'light');
   document.querySelector('meta[name="theme-color"]').content = state.settings.darkMode ? '#121212' : '#faf8f5';
 }
@@ -443,6 +446,18 @@ function setupEvents() {
   });
 
   dom.darkmodeToggle.addEventListener('click', () => { state.settings.darkMode = !state.settings.darkMode; saveSettings(); });
+  dom.highresToggle.addEventListener('click', () => {
+    state.settings.highRes = !state.settings.highRes;
+    saveSettings();
+    if (state.currentBook && state.pdfDoc) {
+      state.pageCache = new Array(state.pdfDoc.numPages).fill(null);
+      state.renderedPages.clear();
+      dom.pagesContainer.querySelectorAll('.pdf-page img').forEach(img => img.remove());
+      dom.pagesContainer.querySelectorAll('.page-loading').forEach(el => el.classList.remove('hidden'));
+      renderPageDom(state.currentPage);
+      renderPageDom(state.currentPage + 1);
+    }
+  });
   dom.readerContent.addEventListener('scroll', handleScroll);
 }
 
