@@ -436,9 +436,6 @@ function setupEvents() {
   dom.settingsClose.addEventListener('click', () => dom.settings.classList.add('hidden'));
   dom.settingsBackdrop.addEventListener('click', () => dom.settings.classList.add('hidden'));
 
-  dom.tapLeft.addEventListener('click', goPrevChapter);
-  dom.tapRight.addEventListener('click', goNextChapter);
-
   document.addEventListener('keydown', e => {
     if (!dom.readerView.classList.contains('active')) return;
     if (e.key === 'ArrowLeft') goPrevChapter();

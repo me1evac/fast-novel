@@ -98,6 +98,7 @@ Headings are mapped to page numbers using cumulative line counts per page.
 ### PDF Page Rendering
 
 - Pages rendered at reader width (max 720px, min 320px)
+- Resolution multiplied by `devicePixelRatio` (capped at 2×) for sharp text on Retina/HiDPI screens
 - JPEG quality 0.85
 - Cached in memory (`state.pageCache`) during session
 - First visible page renders immediately; remaining pages render in background

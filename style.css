@@ -418,20 +418,10 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 200px;
+  min-height: 150px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 13px;
   background: var(--bg);
-}
-
-.page-loading .mini-spinner {
-  width: 20px;
-  height: 20px;
-  margin-right: 10px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
 }
 
 .reader-footer {
@@ -471,21 +461,6 @@ button {
   text-align: right;
   flex-shrink: 0;
 }
-
-/* Tap zones */
-.tap-zone {
-  position: fixed;
-  top: var(--header-h);
-  top: calc(var(--header-h) + var(--safe-t));
-  bottom: var(--footer-h);
-  bottom: calc(var(--footer-h) + var(--safe-b));
-  width: 30%;
-  z-index: 10;
-  cursor: pointer;
-}
-
-#tap-left { left: 0; }
-#tap-right { right: 0; }
 
 /* ============================
    DRAWERS
