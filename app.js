@@ -265,8 +265,8 @@ async function renderPageDom(pn) {
   const div = dom.pagesContainer.querySelector(`[data-page="${pn}"]`);
   if (!div) return;
   try {
-    const url = await renderPageToUrl(pn);
     state.renderedPages.add(pn);
+    const url = await renderPageToUrl(pn);
     const ld = div.querySelector('.page-loading');
     if (ld) ld.remove();
     const img = document.createElement('img');
