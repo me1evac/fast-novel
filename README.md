@@ -1,133 +1,80 @@
 # Truyện Nhanh — PDF Novel Reader
 
-A client-side web app that turns PDF files into a mobile-optimized novel reading experience. Preserves the original PDF formatting by rendering each page as an image.
+A client-side web app that converts PDF files into a mobile-optimized novel reader. Renders each PDF page as an image in a scrolling view. All data stays in the browser (IndexedDB + localStorage).
 
 ## Tech Stack
 
-| Layer | Choice |
-|-------|--------|
-| Language | Vanilla JavaScript (ES2017+) |
-| PDF Engine | PDF.js 3.11.174 (CDN) |
-| Storage | IndexedDB (books + progress), localStorage (settings) |
-| CSS | Custom properties, CSS Grid, mobile-first |
-| Server (dev) | `npx serve .` or any static file server |
+- **Language:** Vanilla JS (ES2017+), no framework
+- **PDF Engine:** PDF.js 3.11.174 (CDN)
+- **Storage:** IndexedDB (books + progress), localStorage (settings)
+- **CSS:** Custom properties, CSS Grid, mobile-first, no framework
+- **Server:** `npx serve .` or any static server (required for IndexedDB + File API)
 
-## File Structure
+## Files
 
-```
-truyennhanh/
-├── index.html       # Single HTML entry — all views
-├── style.css        # All styles — dark/light themes, responsive
-├── app.js           # All application logic
-└── README.md        # This file
-```
+| File | Purpose |
+|------|---------|
+| `index.html` | Single HTML entry, all views (library, reader, sidebar, settings) |
+| `style.css` | All styles, dark/light themes, responsive breakpoints |
+| `app.js` | All application logic, ~530 lines |
+| `README.md` | This file |
 
-Zero build step. Zero dependencies (except PDF.js loaded from CDN).
+## Key Code Locations (`app.js`)
 
-## Running Locally
+| Function | Line | Purpose |
+|----------|------|---------|
+| `parsePDF()` | 65 | Read PDF, extract text, detect chapters, create cover thumbnail |
+| `detectChapters()` | 113 | Regex-based chapter detection from extracted text |
+| `loadPdf()` / `unloadPdf()` | 149/155 | PDF document lifecycle management |
+| `renderPageToUrl()` | 162 | Render a PDF page to a JPEG data URL via canvas. Uses DPR (capped at 2×) for sharp text. When `settings.highRes` is on: DPR cap=3, render width=1080px |
+| `openReader()` | 210 | Open a book, create page DOM skeleton, render initial pages |
+| `renderPageDom()` | 263 | Lazy-render one page into its placeholder div |
+| `navToPage()` | 283 | Navigate to a specific page |
+| `goPrevChapter()` / `goNextChapter()` | 299/307 | Chapter navigation (keyboard ← → only) |
+| `handleScroll()` | 333 | Scroll-based page tracking + lazy rendering |
+| `renderLibrary()` | 179 | Render the book grid |
+| `renderSidebar()` | 451 | Render chapter list sidebar |
+| `handleFile()` | 473 | File picker → parse → store → open |
+| `deleteBook()` | 398 | Confirm + delete from IndexedDB |
+| `applySettings()` | 415 | Apply dark mode + high quality toggles |
+| `init()` | 517 | Bootstrap: open DB, load books, render |
 
-```sh
-cd truyennhanh
-npx serve .
-# then open http://localhost:3000 in browser
-```
+## State Shape
 
-A static HTTP server is required (IndexedDB + File API don't work from `file://`).
-
-## Architecture
-
-### Views (hash-less SPA via CSS class toggles)
-
-| View | Selector | Description |
-|------|----------|-------------|
-| Library | `#library-view` | Grid of book cards with cover, title, progress. Add button → file picker. |
-| Reader | `#reader-view` | Scrolling PDF page images. Header, footer with progress bar. |
-| Chapters | `#sidebar` | Slide-in from left. List of chapters with checkmarks. |
-| Settings | `#settings` | Slide-in from right. Dark mode toggle. |
-
-### Data Flow
-
-```
-User picks PDF file
-    → file.arrayBuffer()
-    → Clone buffer (pdfData — for storage)
-    → pdfjsLib.getDocument({ data: originalBuffer })  — original gets transferred
-    → Extract text per page for chapter detection
-    → detectChapters() — finds headings, maps to page numbers
-    → Render page 1 as JPEG for cover thumbnail
-    → { title, coverUrl, chapters, chapterPages, totalPages, pdfData, ... }
-    → dbPut('books', bookData) — saves to IndexedDB
-    → dbGet('books', id) — reload fresh copy (undetached buffer)
-    → loadPdf(fresh.pdfData) — render pages as user scrolls
+```js
+state = {
+  books: [{ id, title, coverUrl, chapters, chapterPages, totalPages, pdfData, fileSize, fileName, createdAt, _progress }],
+  currentBook: null,
+  currentPage: 0,
+  settings: { darkMode: false, highRes: false },  // persisted to localStorage
+  pdfDoc: null,       // current PDF.js document
+  pageCache: null,    // array of data URLs per page
+  renderedPages: Set  // set of rendered page indices
+}
 ```
 
-### IndexedDB Schema
+## IndexedDB Schema
 
-**Database:** `TruyenNhanhDB` (version 1)
-
-**Object store: `books`**
-- `id` — auto-increment (keyPath)
-- `title` — book title (filename without .pdf)
-- `coverUrl` — JPEG data URL of page 1
-- `chapters` — `[{ id, title, content }]`
-- `chapterPages` — array mapping chapter index → page number
-- `totalPages` — number of PDF pages
-- `pdfData` — raw PDF ArrayBuffer (cloned before PDF.js touches it)
-- `fileSize`, `fileName`, `createdAt`
-
-**Object store: `progress`**
-- `bookId` — foreign key to books store (keyPath)
-- `pageIndex` — current page number (0-based)
-- `totalPages` — total pages at last save
-- `updatedAt` — timestamp
-
-### Chapter Detection
-
-Regex patterns tested against each line of extracted text:
-
-```
-Chương 1, Chapter 1, Chapitre 1
-Phần 1, Part 1, Tập 1, Quyển 1, Book 1, Volume 1
-Hồi 1
-```
-
-Section break lines (`---`, `***`, `=====`) as secondary separator.
-
-Headings are mapped to page numbers using cumulative line counts per page.
-
-### PDF Page Rendering
-
-- Pages rendered at reader width (max 720px, min 320px)
-- Resolution multiplied by `devicePixelRatio` (capped at 2×) for sharp text on Retina/HiDPI screens
-- JPEG quality 0.85
-- Cached in memory (`state.pageCache`) during session
-- First visible page renders immediately; remaining pages render in background
-- Re-creates PDF document from stored ArrayBuffer each time reader opens
+- **DB:** `TruyenNhanhDB` (v1)
+- **Store `books`:** `{ id (autoIncrement), title, coverUrl, chapters, chapterPages, totalPages, pdfData, fileSize, fileName, createdAt }`
+- **Store `progress`:** `{ bookId (keyPath), pageIndex, totalPages, updatedAt }`
+- **localStorage key:** `truyennhanh.settings` → `{ darkMode, highRes }`
 
 ## Key Behaviors
 
 - **Swipe to delete** — swipe left on book card → red delete button
-- **Desktop delete** — hover card → ✕ button top-right
+- **Desktop delete** — hover card → ✕ button
+- **Chapter navigation** — keyboard ← → arrows only (screen tap zones removed)
 - **Progress** — auto-saved to IndexedDB on scroll (debounced 500ms)
 - **Cache** — same filename + size → skip re-parse
 - **Scanned PDF** — if extracted text < 50 chars → error message
 - **File limit** — 7MB maximum
+- **High quality mode** — Settings toggle → renders at up to 1080px / 3× DPR (off by default)
 
-## Settings
+## Conventions
 
-Stored in localStorage under key `truyennhanh.settings`:
-
-```json
-{ "darkMode": false }
-```
-
-## Potential Upgrades
-
-- **Virtual scrolling** — for very long PDFs, only render visible pages
-- **Text search** — search within extracted chapter text
-- **Bookmarks** — save multiple positions per book
-- **Export highlights** — save selected text regions
-- **Multiple file formats** — EPUB, MOBI (needs additional parser)
-- **Offline worker** — bundle PDF.js worker locally instead of CDN
-- **Upload via URL** — fetch PDF from URL (needs CORS proxy or backend)
-- **Pagination mode** — single-page view with tap-to-turn instead of scroll
+- All functions use `function` declarations (no arrow functions for named functions)
+- DOM queries cached in `dom` object at top of file
+- Async/await for all promises
+- No build step, no npm dependencies (except PDF.js CDN)
+- Vietnamese UI labels throughout
