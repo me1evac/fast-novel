@@ -108,7 +108,6 @@ Headings are mapped to page numbers using cumulative line counts per page.
 
 - **Swipe to delete** — swipe left on book card → red delete button
 - **Desktop delete** — hover card → ✕ button top-right
-- **Chapter navigation** — tap left/right 30% of screen, keyboard ← →
 - **Progress** — auto-saved to IndexedDB on scroll (debounced 500ms)
 - **Cache** — same filename + size → skip re-parse
 - **Scanned PDF** — if extracted text < 50 chars → error message
