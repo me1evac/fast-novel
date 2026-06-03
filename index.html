@@ -41,6 +41,11 @@
       <header class="reader-header">
         <button id="back-btn" class="header-btn" aria-label="Quay lại">←</button>
         <span id="reader-title" class="reader-title truncate">Tên sách</span>
+        <span class="zoom-group" id="zoom-group">
+          <button id="zoom-out-btn" class="header-btn zoom-btn" aria-label="Thu nhỏ">A−</button>
+          <span id="zoom-label" class="zoom-label">1×</span>
+          <button id="zoom-in-btn" class="header-btn zoom-btn" aria-label="Phóng to">A+</button>
+        </span>
         <button id="sidebar-toggle" class="header-btn" aria-label="Mục lục">☰</button>
         <button id="settings-toggle" class="header-btn" aria-label="Cài đặt">⚙</button>
       </header>
@@ -52,6 +57,17 @@
           <div id="progress-fill" class="progress-fill"></div>
         </div>
         <span id="progress-text" class="progress-text">0%</span>
+        <button id="bookmark-btn" class="header-btn" aria-label="Đánh dấu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
+        <button id="bookmark-list-btn" class="header-btn" aria-label="Danh sách đánh dấu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+          </svg>
+        </button>
       </footer>
     </div>
 
@@ -84,12 +100,65 @@
             <button id="darkmode-toggle" class="toggle-btn">Tắt</button>
           </div>
           <div class="setting-row">
-            <label class="setting-label">Chất lượng cao</label>
+            <div class="setting-label-group">
+              <label class="setting-label">Chất lượng cao</label>
+              <span class="info-icon" data-tip="Mặc định ở chế độ PDF, file sẽ chỉ hiển thị ở 720p. App sẽ upscale truyện lên 1080p với tuỳ chọn này">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              </span>
+            </div>
             <button id="highres-toggle" class="toggle-btn">Tắt</button>
+          </div>
+          <div class="setting-row">
+            <div class="setting-label-group">
+              <label class="setting-label">Chế độ văn bản</label>
+              <span class="info-icon" data-tip="Thử nghiệm cho các novel, tiêu tốn nhiều tài nguyên của máy, cân nhắc khi sử dụng">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              </span>
+            </div>
+            <button id="textmode-toggle" class="toggle-btn">Tắt</button>
+          </div>
+          <div id="parse-collapse" class="settings-collapse">
+            <button class="collapse-header" id="parse-collapse-toggle">
+              <span>Tuỳ chọn nâng cao</span>
+              <span class="collapse-chevron" id="parse-chevron">▸</span>
+            </button>
+            <div class="collapse-body" id="parse-collapse-body">
+              <div class="setting-row">
+                <label class="setting-label">Phân tích lại</label>
+                <button id="reparse-btn" class="action-btn">Chạy</button>
+              </div>
+              <div class="setting-row">
+                <label class="setting-label">Làm sạch header lặp</label>
+                <button id="clean-headers-btn" class="action-btn">Chạy</button>
+              </div>
+            </div>
           </div>
         </div>
       </aside>
     </div>
+
+    <!-- ====== BOOKMARK LIST DRAWER ====== -->
+    <div id="bookmark-drawer" class="drawer hidden">
+      <div class="drawer-backdrop" id="bookmark-backdrop"></div>
+      <aside class="drawer-panel drawer-left" id="bookmark-panel" style="right:0;left:auto;animation-name:slideInRight">
+        <header class="drawer-header">
+          <h2 class="drawer-title">Đánh dấu</h2>
+          <button id="bookmark-close" class="header-btn" aria-label="Đóng">✕</button>
+        </header>
+        <div id="bookmark-list" class="chapter-list"></div>
+      </aside>
+    </div>
+
+    <!-- ====== MODAL ====== -->
+    <div id="modal" class="overlay hidden">
+      <div class="modal-box" id="modal-box">
+        <p id="modal-text" class="modal-text"></p>
+        <div class="modal-buttons" id="modal-buttons"></div>
+      </div>
+    </div>
+
+    <!-- ====== TOOLTIP ====== -->
+    <div id="info-tooltip" class="info-tooltip hidden"></div>
 
   </div>
   <script src="app.js"></script>

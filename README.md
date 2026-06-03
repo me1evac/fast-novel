@@ -1,12 +1,12 @@
 # Truyện Nhanh — PDF Novel Reader
 
-A client-side web app that converts PDF files into a mobile-optimized novel reader. Renders each PDF page as an image in a scrolling view. All data stays in the browser (IndexedDB + localStorage).
+A client-side web app that converts PDF files into a mobile-optimized novel reader. Supports **Image mode** (render PDF pages as images) and **Text mode** (continuous scroll text with chapter headings). All data stays in the browser (IndexedDB + localStorage).
 
 ## Tech Stack
 
 - **Language:** Vanilla JS (ES2017+), no framework
 - **PDF Engine:** PDF.js 3.11.174 (CDN)
-- **Storage:** IndexedDB (books + progress), localStorage (settings)
+- **Storage:** IndexedDB (books + progress + bookmarks), localStorage (settings)
 - **CSS:** Custom properties, CSS Grid, mobile-first, no framework
 - **Server:** `npx serve .` or any static server (required for IndexedDB + File API)
 
@@ -14,62 +14,111 @@ A client-side web app that converts PDF files into a mobile-optimized novel read
 
 | File | Purpose |
 |------|---------|
-| `index.html` | Single HTML entry, all views (library, reader, sidebar, settings) |
-| `style.css` | All styles, dark/light themes, responsive breakpoints |
-| `app.js` | All application logic, ~530 lines |
+| `index.html` | Single HTML entry, all views — header buttons use SVG icons |
+| `style.css` | All styles, dark/light themes, responsive, text mode, page-number, bookmark SVG |
+| `app.js` | All application logic, ~900 lines |
 | `README.md` | This file |
 
 ## Key Code Locations (`app.js`)
 
+### Text Extraction
+
 | Function | Line | Purpose |
 |----------|------|---------|
-| `parsePDF()` | 65 | Read PDF, extract text, detect chapters, create cover thumbnail |
-| `detectChapters()` | 113 | Regex-based chapter detection from extracted text |
-| `loadPdf()` / `unloadPdf()` | 149/155 | PDF document lifecycle management |
-| `renderPageToUrl()` | 162 | Render a PDF page to a JPEG data URL via canvas. Uses DPR (capped at 2×) for sharp text. When `settings.highRes` is on: DPR cap=3, render width=1080px |
-| `openReader()` | 210 | Open a book, create page DOM skeleton, render initial pages |
-| `renderPageDom()` | 263 | Lazy-render one page into its placeholder div |
-| `navToPage()` | 283 | Navigate to a specific page |
-| `goPrevChapter()` / `goNextChapter()` | 299/307 | Chapter navigation (keyboard ← → only) |
-| `handleScroll()` | 333 | Scroll-based page tracking + lazy rendering |
-| `renderLibrary()` | 179 | Render the book grid |
-| `renderSidebar()` | 451 | Render chapter list sidebar |
-| `handleFile()` | 473 | File picker → parse → store → open |
-| `deleteBook()` | 398 | Confirm + delete from IndexedDB |
-| `applySettings()` | 415 | Apply dark mode + high quality toggles |
-| `init()` | 517 | Bootstrap: open DB, load books, render |
+| `extractPageText()` | 78 | Per-page text extraction preserving line breaks via Y-position tracking |
+| `parsePDF()` | 98 | Read PDF, extract text per page, detect chapters, create cover |
+| `detectChapters()` | 144 | Regex-based chapter detection from extracted text |
+| `ensurePageTexts()` | 181 | Re-extract + regenerate chapters for old books missing content |
+
+### Image Mode
+
+| Function | Line | Purpose |
+|----------|------|---------|
+| `loadPdf()` / `unloadPdf()` | 243/250 | PDF document lifecycle (clones buffer to avoid detached ArrayBuffer) |
+| `renderPageToUrl()` | 257 | Render a PDF page to a JPEG data URL via canvas |
+| `openImageReader()` | 320 | Open a book in image mode, create page DOM skeleton, render initial pages |
+| `renderPageDom()` | 381 | Lazy-render one page into its placeholder div |
+| `navToPage()` | 426 | Navigate to a specific page |
+| `handleScroll()` | 531 | Scroll-based page tracking + lazy rendering |
+
+### Text Mode
+
+| Function | Line | Purpose |
+|----------|------|---------|
+| `renderTextContent()` | 208 | Render continuous scroll text with page-number detection |
+| `openTextReader()` | 369 | Open a book in text mode, auto-fallback to image if no text |
+| `handleTextScroll()` | 503 | Chapter-based scroll tracking (viewport center detection) |
+| `navToChapter()` | 437 | Scroll to a chapter or page (works for both modes) |
+| `goPrevChapter()` / `goNextChapter()` | 449/460 | Chapter navigation, works for both modes |
+
+### Bookmark System
+
+| Function | Line | Purpose |
+|----------|------|---------|
+| `bookmarkPageToChapter()` | 608 | Map any page index to its containing chapter |
+| `loadBookmarks()` | 616 | Load bookmarks for current book from IndexedDB |
+| `getBookmarkKey()` | 624 | Get `{ pageIndex, chapterIndex }` for current position |
+| `toggleBookmark()` | 634 | Add/remove bookmark for current page |
+| `updateBookmarkBtn()` | 647 | Update SVG bookmark icon active state (yellow fill) |
+| `renderBookmarkList()` | 653 | Render bookmark list drawer with page+chapter labels |
+
+### Shared
+
+| Function | Line | Purpose |
+|----------|------|---------|
+| `openReader()` | 304 | Dispatch to `openImageReader` / `openTextReader` based on `settings.textMode` |
+| `updateProgress()` | 474 | Chapter-based (text) or page-based (image) progress |
+| `savePosition()` | 494 | Auto-save position to IndexedDB (debounced 500ms) |
+| `renderSidebar()` | 753 | Chapter list with read tracking |
+| `applySettings()` | 691 | Apply dark mode, high quality, text mode toggles |
+| `loadSettings()` | 671 | Always defaults to image mode (`textMode: false`) |
+| `confirmDelete()` | 593 | Delete book + progress + all related bookmarks |
+| `init()` | 839 | Bootstrap: open DB (v2), load books, handle both progress shapes |
 
 ## State Shape
 
 ```js
 state = {
-  books: [{ id, title, coverUrl, chapters, chapterPages, totalPages, pdfData, fileSize, fileName, createdAt, _progress }],
+  books: [{ id, title, coverUrl, chapters, chapterPages, totalPages, pdfData,
+           fileSize, fileName, createdAt, pageTexts, _progress }],
   currentBook: null,
-  currentPage: 0,
-  settings: { darkMode: false, highRes: false },  // persisted to localStorage
-  pdfDoc: null,       // current PDF.js document
-  pageCache: null,    // array of data URLs per page
-  renderedPages: Set  // set of rendered page indices
+  currentPage: 0,          // image mode: current page index
+  currentChapter: 0,       // text mode: current chapter index
+  settings: { darkMode: false, highRes: false, textMode: false },
+  pdfDoc: null,            // current PDF.js document (image mode only)
+  pageCache: null,         // array of data URLs per page (image mode only)
+  renderedPages: Set,      // set of rendered page indices (image mode only)
+  _bookmarks: [],          // cache of bookmarks for current book
 }
 ```
 
 ## IndexedDB Schema
 
-- **DB:** `TruyenNhanhDB` (v1)
-- **Store `books`:** `{ id (autoIncrement), title, coverUrl, chapters, chapterPages, totalPages, pdfData, fileSize, fileName, createdAt }`
-- **Store `progress`:** `{ bookId (keyPath), pageIndex, totalPages, updatedAt }`
-- **localStorage key:** `truyennhanh.settings` → `{ darkMode, highRes }`
+- **DB:** `TruyenNhanhDB` (v2)
+- **Store `books`:** `{ id (autoIncrement), title, coverUrl, chapters, chapterPages, totalPages, pdfData, fileSize, fileName, createdAt, pageTexts }`
+- **Store `progress`:** `{ bookId (keyPath), pageIndex, totalPages, updatedAt }` (image) or `{ bookId (keyPath), chapterIndex, totalChapters, updatedAt }` (text)
+- **Store `bookmarks`:** `{ id (autoIncrement), bookId, pageIndex, chapterIndex, label, createdAt }` — indexed by `bookId`
+- **localStorage key:** `truyennhanh.settings` → `{ darkMode, highRes, textMode }`
 
 ## Key Behaviors
 
-- **Swipe to delete** — swipe left on book card → red delete button
-- **Desktop delete** — hover card → ✕ button
-- **Chapter navigation** — keyboard ← → arrows only (screen tap zones removed)
-- **Progress** — auto-saved to IndexedDB on scroll (debounced 500ms)
-- **Cache** — same filename + size → skip re-parse
-- **Scanned PDF** — if extracted text < 50 chars → error message
+- **Image Mode** — renders each PDF page as JPEG image, scroll per page, lazy-loads nearby pages
+- **Text Mode** — continuous scroll, `<h2>` chapter headings, paragraphs split by blank lines, system-ui font 17px
+- **Line-aware extraction** — `extractPageText()` tracks Y-position of PDF text items to preserve actual line breaks within pages
+- **Page numbers** — lines consisting only of digits are rendered as centered muted page-number markers
+- **Toggle modes** — Settings → "Chế độ văn bản", persists across session; default is image mode
+- **Auto-save** — saves `chapterIndex` (text) / `pageIndex` (image) on scroll (debounced 500ms)
+- **Manual bookmarks** — page-based: each bookmark stores `pageIndex` + `chapterIndex`; label shows `"Trang X - Chương Y"`
+- **Bookmark toggle** — SVG bookmark icon in footer toggles bookmark for current page; yellow fill when active
+- **Bookmark visibility** — bookmark buttons hidden in image mode, visible only in text mode
+- **Bookmark list** — open book SVG icon opens drawer; click navigates to page (image) or chapter (text)
+- **Migration** — old books with missing chapter content get re-extracted + chapters regenerated on first text mode open
+- **Buffer safety** — `loadPdf()` clones ArrayBuffer before passing to PDF.js worker to prevent detached buffer errors on mode toggle
+- **Chapter navigation** — keyboard ← → arrows (both modes)
+- **Swipe to delete** — swipe left on book card → red delete button (also deletes bookmarks)
+- **Scanned PDF fallback** — text mode auto-falls back to image mode if extracted text < 50 non-whitespace chars
+- **Default mode** — image mode is forced on every app start regardless of saved preference
 - **File limit** — 7MB maximum
-- **High quality mode** — Settings toggle → renders at up to 1080px / 3× DPR (off by default)
 
 ## Conventions
 
