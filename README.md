@@ -16,7 +16,7 @@ A client-side web app that converts PDF files into a mobile-optimized novel read
 |------|---------|
 | `index.html` | Single HTML entry, all views — settings drawer, tooltip element, modal |
 | `style.css` | All styles, dark/light themes, responsive, text mode, page-number, zoom controls, collapsible settings, tooltip |
-| `app.js` | All application logic, ~1200 lines |
+| `app.js` | All application logic, ~1230 lines |
 | `README.md` | This file |
 
 ## Key Code Locations (`app.js`)
@@ -77,7 +77,7 @@ A client-side web app that converts PDF files into a mobile-optimized novel read
 
 | Feature | Purpose |
 |---------|---------|
-| `stripRepeatedLines()` | Scans first & last line of each page; if a normalized line appears on ≥60% of pages, removes it. Runs automatically in `parsePDF()`, `ensurePageTexts()`, `reparseBook()`. Also triggerable via Settings → "Làm sạch header lặp". |
+| `stripRepeatedLines()` | Scans first & last line of each page; if a normalized line appears on ≥60% of pages, removes it. Runs automatically in `parsePDF()`, `ensurePageTexts()`, `reparseBook()`, and `openTextReader()`. Also triggerable via Settings → "Làm sạch header lặp". |
 
 ### Bookmark System
 
@@ -162,6 +162,7 @@ state = {
 - **Chapter navigation** — keyboard ← → arrows (both modes)
 - **Swipe to delete** — swipe left on book card → red delete button (also deletes bookmarks)
 - **Scanned PDF fallback** — text mode auto-falls back to image mode if extracted text < 50 non-whitespace chars
+- **Settings reset on file open** — `handleFile()` resets `state.settings` to defaults and clears localStorage before opening any new or existing file
 - **Default mode** — image mode is forced on every app start regardless of saved preference
 - **File limit** — 7MB maximum
 - **Mobile UI** — chapter list with `min-height: 48px`, `border-left: 3px solid var(--accent)` for current chapter; no `box-shadow` on `.pdf-page`; `line-height: 1.6`
@@ -176,11 +177,22 @@ state = {
 
 ## Changelog
 
-### v3 (current)
+### v4 (current)
+- Per-book settings via `{ darkMode, books: { [id]: { highRes, textMode } } }` — `darkMode` global, phần còn lại lưu riêng theo từng sách
+- Settings reset về mặc định (`highRes=false, textMode=false`) khi thoát về màn hình thư viện
+- Thumbnail cố định `200×267` (3:4), render center-crop fill
+- `ZOOM_LEVELS` mở rộng: 0.5, 0.75, 1, 1.15, 1.25, 1.5, 1.75, 2, 2.5, 3
+- Fix bug delete: `stopPropagation` trực tiếp trên `.card-delete-btn` — không còn mở sách khi xoá
+- "Tuỳ chọn nâng cao" chỉ hiện khi đang ở chế độ văn bản
+- Book title truncation: 1 dòng với `text-overflow: ellipsis`
+
+### v3
+- Settings reset on file open (localStorage cleared per `handleFile()`)
+- `stripRepeatedLines()` runs in `openTextReader()` for old books without re-parse
 - Collapsible "Tuỳ chọn nâng cao" in Settings (only when text data exists)
-- SVG info tooltips (desktop hover / mobile tap)
+- SVG info tooltips (desktop hover / mobile tap, `position: fixed` to avoid overflow clipping)
 - Header/footer auto-removal via `stripRepeatedLines()` (frequency ≥60%)
-- Smart paragraph grouping in `renderTextContent()` (dialogue, short-line rag, scene breaks)
+- Smart paragraph grouping in `renderTextContent()` (dialogue-start, short-line rag, scene breaks)
 - Paragraph break detection in `extractPageText()` (Y-gap >1.4×fontSize)
 - Zoom controls in image mode (A+/A− buttons, width-based zoom)
 - Custom modal replacing `alert()`/`confirm()`

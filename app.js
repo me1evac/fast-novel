@@ -12,6 +12,8 @@ const SECTION_BREAK = /^[\s\-–—=*~#·]{5,}$/m;
 const CHAPTER_TITLE_CLEAN = /^[:\s.\-—–]+|[:\s.\-—–]+$/g;
 const PAGE_NUM_RE = /^\d+$/;
 const SETTINGS_KEY = 'truyennhanh.settings';
+const THUMB_W = 200;
+const THUMB_H = 267;
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -189,10 +191,17 @@ async function parsePDF(file) {
   let coverUrl = '';
   try {
     const p1 = await pdfDoc.getPage(1);
-    const vp = p1.getViewport({ scale: 0.3 });
+    const vp = p1.getViewport({ scale: 1 });
+    const scale = Math.max(THUMB_W / vp.width, THUMB_H / vp.height);
+    const renderVp = p1.getViewport({ scale });
     const c = document.createElement('canvas');
-    c.width = vp.width; c.height = vp.height;
-    await p1.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+    c.width = THUMB_W; c.height = THUMB_H;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#e0ddd5';
+    ctx.fillRect(0, 0, THUMB_W, THUMB_H);
+    const ox = (THUMB_W - renderVp.width) / 2;
+    const oy = (THUMB_H - renderVp.height) / 2;
+    await p1.render({ canvasContext: ctx, viewport: renderVp, transform: [1, 0, 0, 1, ox, oy] }).promise;
     coverUrl = c.toDataURL('image/jpeg', 0.7);
   } catch {}
 
@@ -469,6 +478,10 @@ function renderLibrary() {
   dom.bookGrid.querySelectorAll('.book-card').forEach((card) => {
     setupSwipe(card);
     card.addEventListener('click', () => openReader(Number(card.dataset.id)));
+    card.querySelector('.card-delete-btn')?.addEventListener('click', e => {
+      e.stopPropagation();
+      confirmDelete(Number(card.dataset.id));
+    });
   });
 }
 
@@ -527,6 +540,7 @@ async function openReader(bookId) {
 
   state.currentBook = book;
   state._bookmarks = await loadBookmarks(bookId);
+  loadBookSettings(bookId);
   dom.readerTitle.textContent = book.title;
 
   if (state.settings.textMode) {
@@ -809,8 +823,6 @@ function setupSwipe(card) {
 document.addEventListener('click', e => {
   const o = e.target.closest('.delete-overlay');
   if (o) confirmDelete(Number(o.dataset.id));
-  const d = e.target.closest('.card-delete-btn');
-  if (d) { e.stopPropagation(); confirmDelete(Number(d.dataset.id)); }
   const s = document.querySelector('.book-card[data-swiped="true"]');
   if (s && !s.contains(e.target) && !e.target.closest('.delete-overlay')) { s.style.transform = ''; s.dataset.swiped = ''; }
 });
@@ -917,7 +929,7 @@ function renderBookmarkList() {
 }
 
 // Zoom
-const ZOOM_LEVELS = [0.75, 1, 1.25, 1.5, 2, 3];
+const ZOOM_LEVELS = [0.5, 0.75, 1, 1.15, 1.25, 1.5, 1.75, 2, 2.5, 3];
 
 function applyZoom() {
   const z = state.zoom;
@@ -937,8 +949,37 @@ function applyZoom() {
 
 // Settings
 function loadSettings() {
-  try { const s = localStorage.getItem(SETTINGS_KEY); if (s) state.settings = { ...state.settings, ...JSON.parse(s) }; } catch {}
-  state.settings.textMode = false;
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      state.settings.darkMode = !!parsed.darkMode;
+    }
+  } catch {}
+  applySettings();
+}
+
+function loadBookSettings(bookId) {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const bookSettings = parsed.books && parsed.books[bookId];
+      if (bookSettings) {
+        state.settings.highRes = !!bookSettings.highRes;
+        state.settings.textMode = !!bookSettings.textMode;
+      } else {
+        state.settings.highRes = false;
+        state.settings.textMode = false;
+      }
+    } else {
+      state.settings.highRes = false;
+      state.settings.textMode = false;
+    }
+  } catch {
+    state.settings.highRes = false;
+    state.settings.textMode = false;
+  }
   applySettings();
 }
 
@@ -952,12 +993,27 @@ function applySettings() {
   const hideBm = !state.settings.textMode;
   dom.bookmarkBtn.classList.toggle('hidden', hideBm);
   dom.bookmarkListBtn.classList.toggle('hidden', hideBm);
-  dom.parseCollapse.classList.toggle('hidden', !state.currentBook || !state.currentBook.pageTexts);
+  dom.parseCollapse.classList.toggle('hidden', !state.settings.textMode || !state.currentBook || !state.currentBook.pageTexts);
   document.documentElement.setAttribute('data-theme', state.settings.darkMode ? 'dark' : 'light');
   document.querySelector('meta[name="theme-color"]').content = state.settings.darkMode ? '#121212' : '#faf8f5';
 }
 
-function saveSettings() { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings)); } catch {} applySettings(); }
+function saveSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    const data = raw ? JSON.parse(raw) : { books: {} };
+    data.darkMode = state.settings.darkMode;
+    if (!data.books) data.books = {};
+    if (state.currentBook) {
+      data.books[state.currentBook.id] = {
+        highRes: state.settings.highRes,
+        textMode: state.settings.textMode,
+      };
+    }
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(data));
+  } catch {}
+  applySettings();
+}
 
 async function reparseBook() {
   const book = state.currentBook;
@@ -1013,8 +1069,10 @@ function setupEvents() {
   dom.fileInput.addEventListener('change', handleFile);
 
   dom.backBtn.addEventListener('click', async () => {
-    await savePosition(); unloadPdf();
+    await savePosition(); saveSettings(); unloadPdf();
     state.currentBook = null; state._bookmarks = []; state.zoom = 1;
+    state.settings.highRes = false; state.settings.textMode = false;
+    applySettings();
     switchView('library'); renderLibrary();
   });
 
@@ -1182,15 +1240,15 @@ async function handleFile(e) {
   if (!file.type.includes('pdf') && !file.name.toLowerCase().endsWith('.pdf')) { await showAlert('Chỉ hỗ trợ file PDF'); return; }
   if (file.size > MAX_FILE_SIZE) { await showAlert('File quá lớn (tối đa 7MB)'); return; }
 
-  state.settings = { darkMode: false, highRes: false, textMode: false };
-  localStorage.removeItem(SETTINGS_KEY);
+  state.settings.highRes = false;
+  state.settings.textMode = false;
   applySettings();
 
   const existing = state.books.find(b => b.fileName === file.name && b.fileSize === file.size);
   if (existing) { openReader(existing.id); return; }
 
-  state.settings = { darkMode: false, highRes: false, textMode: false };
-  localStorage.removeItem(SETTINGS_KEY);
+  state.settings.highRes = false;
+  state.settings.textMode = false;
   applySettings();
 
   showLoading('Đang xử lý PDF...');
