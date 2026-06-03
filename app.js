@@ -340,7 +340,9 @@ function detectChapters(pageTexts, fullText) {
 // === Text Mode ===
 
 async function ensurePageTexts(book) {
-  if (book.pageTexts && book.chapters && book.chapters.some(ch => ch.content && ch.content.trim())) return book;
+  if (book.pageTexts && book.chapters && book.chapters.some(ch => ch.content && ch.content.trim())) {
+    return book;
+  }
   if (!book.pdfData) return book;
   showLoading('Đang xử lý văn bản...');
   try {
@@ -595,6 +597,10 @@ async function openTextReader(book) {
     await openImageReader(book, book.id);
     return;
   }
+
+  stripRepeatedLines(book.pageTexts);
+  if (!book.chapterPages) book.chapterPages = [0];
+  await dbPut('books', book);
 
   const prog = await dbGet('progress', book.id);
   state.currentChapter = prog && prog.chapterIndex != null ? Math.min(prog.chapterIndex, book.chapters.length - 1) : 0;
@@ -1176,8 +1182,16 @@ async function handleFile(e) {
   if (!file.type.includes('pdf') && !file.name.toLowerCase().endsWith('.pdf')) { await showAlert('Chỉ hỗ trợ file PDF'); return; }
   if (file.size > MAX_FILE_SIZE) { await showAlert('File quá lớn (tối đa 7MB)'); return; }
 
+  state.settings = { darkMode: false, highRes: false, textMode: false };
+  localStorage.removeItem(SETTINGS_KEY);
+  applySettings();
+
   const existing = state.books.find(b => b.fileName === file.name && b.fileSize === file.size);
   if (existing) { openReader(existing.id); return; }
+
+  state.settings = { darkMode: false, highRes: false, textMode: false };
+  localStorage.removeItem(SETTINGS_KEY);
+  applySettings();
 
   showLoading('Đang xử lý PDF...');
   try {
